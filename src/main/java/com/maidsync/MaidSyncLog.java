@@ -52,6 +52,25 @@ public final class MaidSyncLog {
                 viewers, describe(entity));
     }
 
+    /**
+     * 延迟补包到点了，但没有任何客户端在追踪她 —— 跳过。
+     *
+     * <p>这不是故障，是<b>刻意的保守</b>：补包用的是裸包，服务端不会因此登记追踪关系，
+     * 给没在追踪她的客户端发只会造出幽灵实体。最常见的原因是传送最终没把她落到主人身边
+     * （被挡住 / 失败），此时她本来也不在主人的客户端上，补了也白补。
+     */
+    public static void deferredNoRecipient(Entity entity, int sameDimensionPlayers) {
+        if (!MaidSyncConfig.debugLog()) {
+            return;
+        }
+        if (throttled(entity, "no-recipient")) {
+            return;
+        }
+        MaidSyncMod.LOGGER.info(
+                "[maidsync] 延迟补包：到点时没有任何客户端在追踪 {}（同维度在线 {} 人）—— 跳过，不补",
+                describe(entity), sameDimensionPlayers);
+    }
+
     /** 诊断：女仆被 moveTo 挪动。用来确认"召唤到底有没有真的移动她"。 */
     public static void maidMoved(Entity entity, double distance) {
         if (!MaidSyncConfig.diagnose()) {

@@ -105,17 +105,28 @@ public final class MaidSyncDeferred {
         return null;
     }
 
-    /** 给同维度、且主人一定覆盖到的玩家补包。 */
+    /**
+     * 只给「当前真的在追踪她」的客户端补包 —— 判定见 {@link MaidTracking}。
+     *
+     * <p>收件人<b>不再</b>按「同维度 + 非主人 128 格内 / 主人无条件」硬筛：那套筛法不看追踪关系，
+     * 而这个模组只能用裸包（服务端不会因此登记追踪关系），给没在追踪她的客户端发
+     * 只会在他的客户端上造出一个服务端再也不管的幽灵实体。主人那一档的
+     * {@code Double.MAX_VALUE} 尤其危险：传送没真正落到主人身边时，会给他发一份
+     * <b>远处未加载区块里</b>的生成包 —— 正好又造出本模组要修的那个冻结态，且这次没有第二次自愈机会。
+     */
     private static void resync(MinecraftServer server, EntityMaid maid) {
+        if (!(maid.level() instanceof ServerLevel level)) {
+            return;
+        }
         int sent = 0;
+        int sameDimension = 0;
         try {
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                if (player.level() != maid.level()) {
+                if (player.level() != level) {
                     continue;
                 }
-                boolean isOwner = player.getUUID().equals(maid.getOwnerUUID());
-                double range = isOwner ? Double.MAX_VALUE : 128.0D * 128.0D;
-                if (player.distanceToSqr(maid) > range) {
+                sameDimension++;
+                if (!MaidTracking.shouldSendTo(level, maid, player)) {
                     continue;
                 }
                 sendResync(player, maid);
@@ -127,6 +138,8 @@ public final class MaidSyncDeferred {
         }
         if (sent > 0) {
             MaidSyncLog.deferredResynced(maid, sent);
+        } else {
+            MaidSyncLog.deferredNoRecipient(maid, sameDimension);
         }
     }
 

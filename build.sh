@@ -10,10 +10,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   MAIDSYNC_LIB   整合包的 .minecraft/libraries
 #   MAIDSYNC_MODS  整合包的 .minecraft/versions/<实例名>/mods
 #   MAIDSYNC_JDK   JDK 21 的 bin 目录（必须 21，更高版本编出的 class 1.21.1 跑不了）
+#   MAIDSYNC_OUT   产物安装目录（可选，默认就是 MAIDSYNC_MODS）。
+#                  只想产出 jar、不想动整合包时指向别处，例如归档的 模组jar/：
 #
 #   export MAIDSYNC_LIB="D:/MC/.minecraft/libraries"
 #   export MAIDSYNC_MODS="D:/MC/.minecraft/versions/pack/mods"
 #   export MAIDSYNC_JDK="C:/Program Files/Java/jdk-21/bin"
+#   export MAIDSYNC_OUT="F:/血机-女仆消失问题探讨/模组jar"
 # ─────────────────────────────────────────────────────────────────────────────
 LIB="${MAIDSYNC_LIB:-E:/血族机械师/.minecraft/libraries}"
 MODS="${MAIDSYNC_MODS:-E:/血族机械师/.minecraft/versions/血族机械师redux/mods}"
@@ -27,7 +30,7 @@ done
 JAVAC="$JDK/javac.exe"
 JAR="$JDK/jar.exe"
 
-VERSION="2.1.0"
+VERSION="2.1.1"
 NAME="maidsync-$VERSION.jar"
 
 # NeoForge 补丁类在前，其余兜底
@@ -45,7 +48,10 @@ CP="$CP;$LIB/com/mojang/datafixerupper/8.0.16/datafixerupper-8.0.16.jar"
 CP="$CP;$LIB/it/unimi/dsi/fastutil/8.5.12/fastutil-8.5.12.jar"
 # Sable 的 Pose3d 签名用到 joml
 CP="$CP;$LIB/org/joml/joml/1.10.5/joml-1.10.5.jar"
-CP="$CP;$MODS/touhoulittlemaid-1.5.3-neoforge+mc1.21.1.jar"
+# 车万女仆：版本号在不同整合包里不一样（本机是 1.5.2，脚本以前硬编码 1.5.3），按实际存在的取
+TLM_JAR="$(ls "$MODS"/touhoulittlemaid-*.jar 2>/dev/null | head -1)"
+[ -n "$TLM_JAR" ] || { echo "[错误] 在 $MODS 里没找到 touhoulittlemaid-*.jar" >&2; exit 1; }
+CP="$CP;$TLM_JAR"
 # Sable。它把 companion 库以 jarjar 形式嵌在 jar 里，而 SubLevel.logicalPose() 等签名要用到它，
 # 所以编译期必须先把那个嵌套 jar 抽出来（只在 build/libs 下，不进产物）。
 SABLE_JAR="$MODS/sable-neoforge-1.21.1-2.0.5.jar"
@@ -84,5 +90,7 @@ cp -r "$ROOT/src/main/resources/." "$OUT/classes/"
 # jar 的 -C 需要 Windows 路径，这里自行转一次，避免依赖 MSYS 的启发式
 "$JAR" --create --file "$(cygpath -w "$OUT/$NAME")" -C "$(cygpath -w "$OUT/classes")" .
 
-cp "$OUT/$NAME" "$MODS/"
-echo "完成 -> $MODS/$NAME"
+OUTDIR="${MAIDSYNC_OUT:-$MODS}"
+mkdir -p "$OUTDIR"
+cp "$OUT/$NAME" "$OUTDIR/"
+echo "完成 -> $OUTDIR/$NAME"

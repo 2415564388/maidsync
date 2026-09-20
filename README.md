@@ -107,7 +107,17 @@ false → true —— 于是出现「移除 → 旧位置重新加回 → 才传
 
 1. 需要 **Minecraft 1.21.1 + NeoForge 21.1.228+** 和 **车万女仆 1.5.0+**
 2. 把 jar 放进 `mods/`
-3. 配置文件在 `config/maidsync-server.toml`
+3. 配置文件在**存档目录下的** `serverconfig/maidsync-server.toml`
+   （`ModConfig.Type.SERVER` 的固定行为；单人存档 = `.minecraft/saves/<存档>/serverconfig/`，
+   专用服务端 = 世界文件夹下的 `serverconfig/`。不是 `config/`）
+
+### 装在服务端就够了
+
+修复**全部在服务端完成**（改的是 `ServerEntity.sendChanges` 和补包时序），
+所以**只装在专用服务端、客户端不装也能用** —— 本模组不注册任何网络通道，
+客户端那边全是诊断探针，不装只是看不到客户端的探针日志。
+
+反过来，如果你在自己客户端也装了，不会有副作用。
 
 ## 配置
 
@@ -137,10 +147,14 @@ false → true —— 于是出现「移除 → 旧位置重新加回 → 才传
 export MAIDSYNC_LIB="/path/to/.minecraft/libraries"
 export MAIDSYNC_MODS="/path/to/.minecraft/versions/<实例名>/mods"
 export MAIDSYNC_JDK="/path/to/jdk-21/bin"     # 必须 JDK 21
+export MAIDSYNC_OUT="/path/to/输出目录"        # 可选，默认 = MAIDSYNC_MODS
 bash build.sh
 ```
 
-也可以直接改 `build.sh` 顶部三行。脚本会把编好的 jar 复制到 `MAIDSYNC_MODS`。
+也可以直接改 `build.sh` 顶部三行。脚本会把编好的 jar 复制到 `MAIDSYNC_OUT`（默认 `MAIDSYNC_MODS`）；
+只想产出 jar、不想动整合包时把 `MAIDSYNC_OUT` 指到别处。
+
+车万女仆的 jar 按 `touhoulittlemaid-*.jar` 自动匹配（不同整合包里版本号不一样）。
 
 > ⚠️ **必须 JDK 21**：更高版本编出的 class 文件版本在 1.21.1 上跑不了。
 > 脚本里加了 `-proc:none`——sponge-mixin 的注解处理器会被 javac 自动发现，
@@ -161,6 +175,16 @@ bash build.sh
 这三样是把这个问题定位下来的关键工具。
 
 ---
+
+## 版本
+
+- **2.1.1** —— 补包的**收件人判定**收紧：只发给「服务端追踪表里现在真的有她」的客户端
+  （原版 `ChunkMap.TrackedEntity.seenBy`），不再按「同维度 + 非主人 128 格内 / 主人无条件」硬筛。
+  原因是补包只能用裸包、服务端不会因此登记追踪关系，给没在追踪她的客户端发会造出**幽灵实体**；
+  主人那一档原来的 `Double.MAX_VALUE` 尤其危险 —— 传送若没真正落到主人身边，
+  会给他发一份远处未加载区块里的生成包，正好又造出本模组要修的那个冻结态。
+  读不到追踪表时（字段改名等）自动退回原版 `updatePlayer` 的同一口径，并留一行日志。
+- **2.1.0** —— 延迟补包（删+生成+数据+装备），实测把「永久冻结」变成「约 1 秒内自愈」。
 
 ## 致谢
 

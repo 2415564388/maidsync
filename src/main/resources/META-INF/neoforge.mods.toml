@@ -4,7 +4,7 @@ license="MIT"
 
 [[mods]]
 modId="maidsync"
-version="2.1.0"
+version="2.1.1"
 displayName="MaidSync (女仆传送同步修复)"
 authors="2415564388"
 description="""
@@ -23,6 +23,10 @@ LivingEntity 的 3 步插值永远走不完（第一步恰好落在起终点的 
 
 注：根子在 1.21 原版给 ChunkMap.TrackedEntity.updatePlayer 新增的 isChunkTracked 判定门
 （1.20.1 没有这个类结构）。本模组是规避，不是根治。
+
+修复全部在服务端完成，客户端可以不装（本模组不注册任何网络通道）。
+2.1.1：补包的收件人改为「服务端追踪表里现在真的有她」的客户端（原版 seenBy），
+不再按距离/主人硬筛 —— 给没在追踪她的客户端补包会造出幽灵实体。
 """
 
 [[dependencies.maidsync]]

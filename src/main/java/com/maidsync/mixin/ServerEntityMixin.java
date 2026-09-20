@@ -6,6 +6,7 @@ import com.maidsync.MaidSyncLog;
 import com.maidsync.MaidSyncMod;
 import com.maidsync.MaidSyncPending;
 import com.maidsync.MaidTarget;
+import com.maidsync.MaidTracking;
 import net.minecraft.network.protocol.game.VecDeltaCodec;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.server.level.ServerLevel;
@@ -89,12 +90,13 @@ public abstract class ServerEntityMixin {
         }
 
         ServerEntity serverEntity = (ServerEntity) (Object) this;
-        double range = trackingRange(this.level, self);
-        double rangeSqr = range * range;
         int rebuilt = 0;
 
+        // 只给「服务端认为现在有这只实体」的玩家重建——判定见 MaidTracking。
+        // 不能只按距离筛：removePairing+addPairing 发的是裸包，不会登记追踪关系，
+        // 给一个没在追踪她的玩家发，只会在他客户端上造出一个服务端再也不管的幽灵实体。
         for (ServerPlayer player : this.level.players()) {
-            if (player.level() != this.level || player.distanceToSqr(self) > rangeSqr) {
+            if (!MaidTracking.shouldSendTo(this.level, self, player)) {
                 continue;
             }
             try {
@@ -136,10 +138,4 @@ public abstract class ServerEntityMixin {
         com.maidsync.probe.MaidTrackProbe.onSendChanges(this.entity, this.positionCodec);
     }
 
-    /** 与原版同一个口径：min(实体的客户端追踪距离, 玩家视距)。宁小勿大，避免给没在追踪的玩家发出生成包。 */
-    private static double trackingRange(ServerLevel level, Entity entity) {
-        int viewDistance = level.getServer().getPlayerList().getViewDistance() * 16;
-        int typeRange = entity.getType().clientTrackingRange() * 16;
-        return Math.min(viewDistance, typeRange);
-    }
 }
