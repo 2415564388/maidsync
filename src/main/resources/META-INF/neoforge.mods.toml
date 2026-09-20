@@ -1,0 +1,50 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+
+[[mods]]
+modId="maidsync"
+version="2.1.0"
+displayName="MaidSync (女仆传送同步修复)"
+authors="Khragg"
+description="""
+修复车万女仆在 1.21.1 上「被远距离传送后客户端看不见她、模型与碰撞箱一起消失、
+大地图停在原位置」的问题。
+
+根因（实测定位）：女仆被传送很远时，会先收到一个按【旧位置】生成的生成包（实测比传送包早
+134ms），客户端于是在一个尚未加载的区块里创建了实体 —— 该 section 状态是 TRACKED 而不是
+TICKING，实体进不了 ClientLevel.tickingEntities，Entity.tick() 永不执行，
+LivingEntity 的 3 步插值永远走不完（第一步恰好落在起终点的 1/3），位置永久冻住。
+而服务端的位置基线已同步、delta≈0，认为客户端知道她在哪，再也不会发位置包。
+
+修法：检测到位置大跳变后，延迟约 1 秒补一次「删+生成+实体数据+装备」，
+让客户端在【玩家身边那个已加载的区块】里重建实体。
+不阻止冻结发生，而是把它从「永久」变成「约 1 秒内自愈」。
+
+注：根子在 1.21 原版给 ChunkMap.TrackedEntity.updatePlayer 新增的 isChunkTracked 判定门
+（1.20.1 没有这个类结构）。本模组是规避，不是根治。
+"""
+
+[[dependencies.maidsync]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.maidsync]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.22)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.maidsync]]
+modId="touhou_little_maid"
+type="required"
+versionRange="[1.5.0,)"
+ordering="AFTER"
+side="BOTH"
+
+[[mixins]]
+config="mixins.maidsync.json"

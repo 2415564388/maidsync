@@ -1,0 +1,20 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.maidsync.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ServerEntityMixin",
+    "EntityMoveToMixin"
+  ],
+  "client": [
+    "client.ClientPacketListenerMixin",
+    "client.ClientLevelMixin",
+    "client.ClientLevelTickAccessor",
+    "client.LevelRendererMixin",
+    "client.EntityMaidRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

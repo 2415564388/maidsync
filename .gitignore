@@ -1,0 +1,14 @@
+# 编译产物
+build/
+
+# 构建时从 Sable jar 里抽出来的嵌套库（不该随仓库分发）
+libs/
+
+# IDE
+*.iml
+.idea/
+.vscode/
+
+# 系统
+Thumbs.db
+.DS_Store
