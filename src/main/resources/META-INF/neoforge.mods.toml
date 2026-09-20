@@ -6,7 +6,7 @@ license="MIT"
 modId="maidsync"
 version="2.1.0"
 displayName="MaidSync (女仆传送同步修复)"
-authors="Khragg"
+authors="2415564388"
 description="""
 修复车万女仆在 1.21.1 上「被远距离传送后客户端看不见她、模型与碰撞箱一起消失、
 大地图停在原位置」的问题。
