@@ -44,12 +44,16 @@ public final class MaidSyncLog {
      * 延迟补包发出去了 —— 这是真正让女仆恢复可见的那一下，务必看得见。
      *
      * <p>四包序列（删+生成+实体数据+装备）与 promaid 的 {@code /maid_smart resync} 一致，
-     * 那条命令实测「敲一下当场恢复」。
+     * 那条命令实测「敲一下当场恢复」。2.1.3 起末尾还补了乘客包——少了它，
+     * 每次补包都会把骑在载具/坐垫上的女仆从客户端那头摘下来（坐下动画消失、位置错位）。
+     *
+     * <p>{@code riding} 一栏就是用来在日志里确认那件事的：她当时在骑东西、补包里也确实
+     * 带了载具，就该打 {@code +载具}。
      */
-    public static void deferredResynced(Entity entity, int viewers) {
+    public static void deferredResynced(Entity entity, int viewers, boolean riding) {
         MaidSyncMod.LOGGER.info(
-                "[maidsync] 延迟补包：已给 {} 个客户端重建 {}（删+生成+数据+装备）",
-                viewers, describe(entity));
+                "[maidsync] 延迟补包：已给 {} 个客户端重建 {}（删+生成+数据+装备{}）",
+                viewers, describe(entity), riding ? "+载具" : "");
     }
 
     /**
@@ -85,6 +89,47 @@ public final class MaidSyncLog {
                 String.format("%.1f", entity.getX()),
                 String.format("%.1f", entity.getY()),
                 String.format("%.1f", entity.getZ()));
+    }
+
+    /**
+     * 因为还在冷却期，本次重建被跳过（见 {@link MaidSyncCooldown}）。
+     *
+     * <p>按 {@code debugLog} 打是有意的 —— 冷却之后这条最多每 {@code rebuildCooldownTicks}
+     * 出现一次，再加上 {@link #throttled} 的 5 秒限频，不会刷屏；而它正是"冷却到底有没有
+     * 在工作"的唯一可见证据，藏到 {@code diagnose} 后面反而不好确认。
+     */
+    public static void cooldownSkipped(Entity entity, double distance) {
+        if (!MaidSyncConfig.debugLog()) {
+            return;
+        }
+        if (throttled(entity, "cooldown")) {
+            return;
+        }
+        MaidSyncMod.LOGGER.info(
+                "[maidsync] 冷却中，跳过重建：{} 距基线 {} 格（{} tick 内已重建过一次，标记已保留）",
+                describe(entity), String.format("%.1f", distance),
+                MaidSyncConfig.rebuildCooldownTicks());
+    }
+
+    /**
+     * 诊断：因为实体在 Sable 物理子关卡上，本次动作被跳过。
+     *
+     * <p><b>只有 {@code diagnose} 打开时才打</b> —— 这道门在实体站在子关卡上的整个期间
+     * <b>每 tick 都会命中</b>，按 debugLog 打会把日志刷爆。要确认这道门真的在生效，
+     * 就把 diagnose 打开。
+     *
+     * @param where 命中位置：{@code moveTo} / {@code sendChanges} / {@code deferred}
+     */
+    public static void skippedSubLevel(Entity entity, String where) {
+        if (!MaidSyncConfig.diagnose()) {
+            return;
+        }
+        if (throttled(entity, "sublevel-" + where)) {
+            return;
+        }
+        MaidSyncMod.LOGGER.info(
+                "[maidsync] 子关卡跳过（{}）：{} 在 Sable 物理子关卡上，本次不参与重建",
+                where, describe(entity));
     }
 
     private static boolean throttled(Entity entity, String kind) {

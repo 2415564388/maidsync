@@ -9,6 +9,7 @@ import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundMoveEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -103,6 +104,87 @@ public class ClientPacketListenerMixin {
         MaidSyncMod.LOGGER.info(
                 "[maidsync/客户端] ← 位移包(相对) 女仆#{} 当前 {}/{}/{}",
                 maid.getId(), f(maid.getX()), f(maid.getY()), f(maid.getZ()));
+    }
+
+    /**
+     * 乘客包 —— 「女仆能不能正常坐下」这条线最关键的一条包，以前没记。
+     *
+     * <p>TLM 的坐下动画有两条路：{@code AnimationRegister} 里 {@code "chair"} 的触发条件是
+     * {@code isPassenger()}（骑在坐垫/椅子/{@code EntitySit} 上走这条），{@code "sit"} 的
+     * 条件是 {@code isMaidInSittingPose()}（同步数据，走另一条）。**前者完全依赖客户端
+     * 那只实体有没有载具**，而载具关系<b>只有这一条包</b>能建立。
+     *
+     * <p>所以只要女仆坐着不播放动画，就要问：这条包到底来没来？来了之后有没有生效？
+     * 两种失败都记进日志：
+     * <ul>
+     *   <li><b>载具/乘客查不到</b> —— 客户端还不认识这个 id（生成包没到 / 顺序反了），
+     *       原版这时候会打一句 {@code Received passengers for unknown entity} 然后<b>整包丢掉</b>；
+     *   <li><b>来了、也认识了，但女仆的 isPassenger 仍是 false</b> —— 包被谁吃掉了。
+     * </ul>
+     */
+    @Inject(method = "handleSetEntityPassengersPacket", at = @At("HEAD"))
+    private void maidsync$onSetPassengers(ClientboundSetPassengersPacket packet, CallbackInfo ci) {
+        if (!MaidSyncConfig.diagnose()) {
+            return;
+        }
+        ClientLevel level = Minecraft.getInstance().level;
+        if (level == null) {
+            return;
+        }
+        int vehicleId = packet.getVehicle();
+        int[] passengers = packet.getPassengers();
+        Entity vehicle = level.getEntity(vehicleId);
+
+        // 与女仆无关的乘客包不记（矿车、船、别的模组的座位都走这条包，会刷屏）
+        boolean involvesMaid = vehicle instanceof EntityMaid;
+        for (int id : passengers) {
+            if (!involvesMaid && level.getEntity(id) instanceof EntityMaid) {
+                involvesMaid = true;
+            }
+        }
+        if (!involvesMaid) {
+            return;
+        }
+
+        MaidSyncMod.LOGGER.info(
+                "[maidsync/客户端] ← 乘客包 载具#{}[{}] 乘客={} || 女仆状态：{}",
+                vehicleId,
+                vehicle == null ? "★客户端查无此实体" : vehicle.getType().toShortString(),
+                describe(level, passengers),
+                maidState(level, vehicleId, passengers));
+    }
+
+    /** 把 id 数组翻成「#12(类型)」，查不到就标星 —— 查不到正是原版整包丢掉的原因。 */
+    private static String describe(ClientLevel level, int[] ids) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < ids.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            Entity e = level.getEntity(ids[i]);
+            sb.append('#').append(ids[i]).append('(')
+                    .append(e == null ? "★查无" : e.getType().toShortString()).append(')');
+        }
+        return sb.append(']').toString();
+    }
+
+    /** 这只女仆此刻在客户端眼中的乘骑状态；载具是不是她也一并说清。 */
+    private static String maidState(ClientLevel level, int vehicleId, int[] passengers) {
+        StringBuilder sb = new StringBuilder();
+        if (level.getEntity(vehicleId) instanceof EntityMaid m) {
+            sb.append("女仆#").append(m.getId()).append(" 载了 ")
+                    .append(m.getPassengers().size()).append(" 个");
+        }
+        for (int id : passengers) {
+            if (level.getEntity(id) instanceof EntityMaid m) {
+                if (sb.length() > 0) {
+                    sb.append("；");
+                }
+                sb.append("女仆#").append(m.getId())
+                        .append(" isPassenger=").append(m.isPassenger());
+            }
+        }
+        return sb.length() == 0 ? "（没找到女仆实体）" : sb.toString();
     }
 
     private static EntityMaid maidById(int entityId) {

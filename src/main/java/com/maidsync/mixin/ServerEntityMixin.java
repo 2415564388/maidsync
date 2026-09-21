@@ -1,12 +1,14 @@
 package com.maidsync.mixin;
 
 import com.maidsync.MaidSyncConfig;
+import com.maidsync.MaidSyncCooldown;
 import com.maidsync.MaidSyncDeferred;
 import com.maidsync.MaidSyncLog;
 import com.maidsync.MaidSyncMod;
 import com.maidsync.MaidSyncPending;
 import com.maidsync.MaidTarget;
 import com.maidsync.MaidTracking;
+import com.maidsync.compat.SableGate;
 import net.minecraft.network.protocol.game.VecDeltaCodec;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.server.level.ServerLevel;
@@ -79,6 +81,18 @@ public abstract class ServerEntityMixin {
             return;
         }
 
+        // ★ Sable 物理子关卡：见 EntityMoveToMixin 里那段说明。
+        //
+        // 【为什么这道门必须在 consume 之前】标记是"她被真正传送过"这件事的凭证。
+        // 在子关卡上时她的每一次位置变化都是 Sable 踢出来的，不是传送；此时若把标记
+        // 消费掉就等于白白丢弃。放在 consume 之前，标记会一直留着，等她真正离开子关卡后
+        // 的第一次 sendChanges 再用它补一次重建 —— 那一刻如果确实是一次远距离传送，
+        // 这次重建正是该做的。
+        if (MaidSyncConfig.skipSubLevels() && SableGate.inSubLevel(self)) {
+            MaidSyncLog.skippedSubLevel(self, "sendChanges");
+            return;
+        }
+
         Vec3 current = self.trackingPosition();
         double delta = Math.sqrt(this.positionCodec.delta(current).lengthSqr());
         // 两条触发路径：
@@ -86,6 +100,22 @@ public abstract class ServerEntityMixin {
         //  2) 兜底：位置基线出现大跳变。这条不依赖任何调用点，是真正的完备网。
         boolean marked = MaidSyncPending.consume(self.getId());
         if (!marked && delta <= MaidSyncConfig.rebuildDistance()) {
+            return;
+        }
+
+        // ★ 冷却：刚修过就不再修。挡的是"判定连续成立 → 每 tick 重建一次"那种风暴
+        //   （最典型是 Sable 的坐标系错配，delta 恒为几千万格）。
+        //
+        //   跳过时【刻意不 cancel】：cancel 会吞掉本 tick 的旋转包与脏数据同步，
+        //   只有在我们确实要重建、用重建换掉它们时才划算。只是跳过的话让原版照常发更好 ——
+        //   而且在 Sable 那种错配里，原版自己算的 delta 是对的，本来也不会发有害的包。
+        //
+        //   标记【原样还回去】：它是"她被真正传送过"的凭证，冷却结束了还得靠它。
+        if (MaidSyncCooldown.coolingDown(self)) {
+            if (marked) {
+                MaidSyncPending.mark(self);
+            }
+            MaidSyncLog.cooldownSkipped(self, delta);
             return;
         }
 
@@ -110,6 +140,8 @@ public abstract class ServerEntityMixin {
 
         // 基线对齐到当前位置：否则下一 tick 会判定"还是大跳变"而反复重建
         this.positionCodec.setBase(current);
+        // 记一下时间，冷却期内不再重建（见 MaidSyncCooldown）
+        MaidSyncCooldown.mark(self);
         MaidSyncLog.rebuilt(self, delta, rebuilt, marked);
 
         // ★ 关键补充：光靠上面这次"当帧重建"救不了"落点在客户端未加载区块"的情况——

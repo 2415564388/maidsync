@@ -4,6 +4,7 @@ import com.maidsync.MaidSyncConfig;
 import com.maidsync.MaidSyncLog;
 import com.maidsync.MaidSyncPending;
 import com.maidsync.MaidTarget;
+import com.maidsync.compat.SableGate;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -39,6 +40,16 @@ public abstract class EntityMoveToMixin {
             return;
         }
         if (!MaidTarget.matches(self)) {
+            return;
+        }
+
+        // ★ Sable 物理子关卡：女仆不在 sable:retain_in_sub_level 标签里，Sable 每 tick 会
+        //   在碰撞解算里把她从 plot 坐标系【踢】回世界坐标系 —— 那是一次 Entity.moveTo，
+        //   位移是两套坐标系的间距（几百到上千格），正好落到下面那句阈值判定上。
+        //   不拦的话每 tick 都打标记、每 tick 重建一次实体，表现为女仆持续抖动抽搐。
+        //   （判定全程反射，见 SableGate；没装 Sable 时这一次调用就是一次 ModList 查表。）
+        if (MaidSyncConfig.skipSubLevels() && SableGate.inSubLevel(self)) {
+            MaidSyncLog.skippedSubLevel(self, "moveTo");
             return;
         }
 

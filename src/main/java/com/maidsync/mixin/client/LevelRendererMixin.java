@@ -6,6 +6,7 @@ import com.maidsync.MaidSyncMod;
 import com.maidsync.client.MaidModelInfo;
 import com.maidsync.client.MaidVisibilityWatch;
 import com.maidsync.compat.SableCompat;
+import com.maidsync.compat.SableGate;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
@@ -109,7 +110,13 @@ public class LevelRendererMixin {
                 String.format("%.2f", maid.getVisibilityPercent(Minecraft.getInstance().player)),
                 f(expectedX), f(expectedY), f(expectedZ));
 
-        if (SableCompat.isLoaded()) {
+        // ★ 守卫必须用 SableGate.modPresent()，【不能】用 SableCompat.isLoaded()。
+        //   SableCompat 里有以 SubLevel 为参数类型的方法，方法签名在【类校验】时就要解析 ——
+        //   也就是说"加载 SableCompat 这个类"本身就是致命的，它的 isLoaded() 根本没机会执行。
+        //   没装 Sable 的客户端一走到这里就 NoClassDefFoundError。
+        //   SableGate 一个 Sable 类型都不出现，所以它能安全当这道门；门后的 describeTracking
+        //   只在 Sable 真的在时才被解析（JVM 的符号引用是首次执行时才解析的）。
+        if (SableGate.modPresent()) {
             MaidSyncMod.LOGGER.info("[maidsync/客户端]   └ Sable 归属：{}", SableCompat.describeTracking(maid));
         }
     }

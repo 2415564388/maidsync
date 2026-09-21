@@ -1,12 +1,15 @@
 package com.maidsync;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.maidsync.compat.SableGate;
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEquipmentPacket;
+import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -118,6 +121,14 @@ public final class MaidSyncDeferred {
         if (!(maid.level() instanceof ServerLevel level)) {
             return;
         }
+        // ★ 排队之后、到点之前她可能已经上了 Sable 的子关卡。补包发的是【裸包】，
+        //   而 Sable 在客户端收到生成包时会（因为她不在 retain_in_sub_level 标签里）
+        //   把包里的世界坐标当成 plot 坐标【再变换一次】，把她摆到另一个错位置。
+        //   所以子关卡上不补 —— 那只会把抖动再加一层。
+        if (MaidSyncConfig.skipSubLevels() && SableGate.inSubLevel(maid)) {
+            MaidSyncLog.skippedSubLevel(maid, "deferred");
+            return;
+        }
         int sent = 0;
         int sameDimension = 0;
         try {
@@ -137,13 +148,33 @@ public final class MaidSyncDeferred {
             return;
         }
         if (sent > 0) {
-            MaidSyncLog.deferredResynced(maid, sent);
+            MaidSyncLog.deferredResynced(maid, sent, maid.getVehicle() != null);
         } else {
             MaidSyncLog.deferredNoRecipient(maid, sameDimension);
         }
     }
 
-    /** 与 promaid 的 /maid_smart resync 完全同一套四包序列。 */
+    /**
+     * 与 promaid 的 {@code /maid_smart resync} 同一套四包序列，<b>外加乘客包</b>。
+     *
+     * <h2>为什么必须补乘客包</h2>
+     * 头一个 {@code ClientboundRemoveEntitiesPacket} 会让客户端走
+     * {@code Entity.setRemoved(DISCARDED)}，而那个方法里有
+     * {@code if (removalReason.shouldDestroy()) stopRiding()} —— <b>她被从载具上摘下来了</b>。
+     * 紧接着的 {@code ClientboundAddEntityPacket} 是裸生成包，包里<b>没有载具字段</b>，
+     * 她以"没骑任何东西"的状态重建。
+     *
+     * <p>而服务端并不知情，也不会自己纠正：乘客名单是<b>载具那一侧</b>的
+     * {@code ServerEntity} 在"名单变了"时广播的，而服务端眼里名单从来没变过
+     * （变的是客户端），所以那一包永远不发第二次。于是脱钩是<b>永久</b>的。
+     *
+     * <p>症状正是「坐下异常」：TLM 的坐下动画（{@code AnimationRegister} 里的
+     * {@code "chair"}）触发条件就是 {@code maid.asEntity().isPassenger()}，掉了就永不播放；
+     * 而且 {@code ServerEntity.sendChanges} 对乘客<b>只发转向、不发坐标</b>（位置本该由载具带），
+     * 于是她还会永久卡在生成包给的那个坐标上 —— 看起来就是"错位"。
+     *
+     * <p>原版 {@code ServerEntity.sendPairingData} 在最后发的正是这两包，这里照抄它的条件与顺序。
+     */
     private static void sendResync(ServerPlayer viewer, EntityMaid maid) {
         BlockPos pos = maid.blockPosition();
         viewer.connection.send(new ClientboundRemoveEntitiesPacket(maid.getId()));
@@ -160,5 +191,15 @@ public final class MaidSyncDeferred {
             }
         }
         viewer.connection.send(new ClientboundSetEquipmentPacket(maid.getId(), equipment));
+
+        // ★ 乘客关系。少了这两包，重建出来的客户端女仆会从载具上掉下来（见上面的长注释）。
+        //   对应原版 ServerEntity.sendPairingData 结尾的那两段，连条件都一样。
+        if (!maid.getPassengers().isEmpty()) {
+            viewer.connection.send(new ClientboundSetPassengersPacket(maid));
+        }
+        Entity vehicle = maid.getVehicle();
+        if (vehicle != null) {
+            viewer.connection.send(new ClientboundSetPassengersPacket(vehicle));
+        }
     }
 }

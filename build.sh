@@ -18,9 +18,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   export MAIDSYNC_JDK="C:/Program Files/Java/jdk-21/bin"
 #   export MAIDSYNC_OUT="F:/血机-女仆消失问题探讨/模组jar"
 # ─────────────────────────────────────────────────────────────────────────────
-LIB="${MAIDSYNC_LIB:-E:/血族机械师/.minecraft/libraries}"
-MODS="${MAIDSYNC_MODS:-E:/血族机械师/.minecraft/versions/血族机械师redux/mods}"
-JDK="${MAIDSYNC_JDK:-C:/Program Files/Eclipse Adoptium/jdk-21.0.11.10-hotspot/bin}"
+LIB="${MAIDSYNC_LIB:-F:/血族机械师/.minecraft/libraries}"
+MODS="${MAIDSYNC_MODS:-F:/血族机械师/.minecraft/versions/血族机械师redux/mods}"
+JDK="${MAIDSYNC_JDK:-C:/Program Files/Java/jdk-21.0.12+8/bin}"
 
 # 提前报错，别等编译到一半才说找不到
 for p in "$LIB" "$MODS" "$JDK"; do
@@ -30,7 +30,7 @@ done
 JAVAC="$JDK/javac.exe"
 JAR="$JDK/jar.exe"
 
-VERSION="2.1.1"
+VERSION="2.1.5"
 NAME="maidsync-$VERSION.jar"
 
 # NeoForge 补丁类在前，其余兜底

@@ -4,7 +4,7 @@ license="MIT"
 
 [[mods]]
 modId="maidsync"
-version="2.1.1"
+version="2.1.5"
 displayName="MaidSync (女仆传送同步修复)"
 authors="2415564388"
 description="""
@@ -27,6 +27,63 @@ LivingEntity 的 3 步插值永远走不完（第一步恰好落在起终点的 
 修复全部在服务端完成，客户端可以不装（本模组不注册任何网络通道）。
 2.1.1：补包的收件人改为「服务端追踪表里现在真的有她」的客户端（原版 seenBy），
 不再按距离/主人硬筛 —— 给没在追踪她的客户端补包会造出幽灵实体。
+
+2.1.2：新增「Sable 物理子关卡」判定（配置 skipSubLevels，默认开）。
+Sable 的 shouldKick 是「实体类型不在 sable:retain_in_sub_level 标签里」，而
+touhou_little_maid:maid 不在那个标签里 —— 于是女仆站在子关卡上时，Sable 会在每 tick
+的碰撞解算（SubLevelEntityCollision.collide）里把她从 plot 坐标系踢回世界坐标系：
+一次 Entity.moveTo，位移是两套坐标系的间距（几百到上千格）。那正好落在本模组的
+传送嗅探点上，导致每 tick 判定为「远距离传送」、每 tick 删一次客户端实体再生成 ——
+表现为女仆在子关卡上持续抖动抽搐。
+现在：实体在子关卡里（或正追踪着子关卡）时，不参与标记与重建；被跳过的标记会留着，
+等她真正离开子关卡后再补一次。判定全程反射（SableGate），没装 Sable 时零开销。
+
+2.1.3：修「延迟补包会把女仆从载具/坐垫上摘下来」。
+补包的头一包是 ClientboundRemoveEntitiesPacket，客户端收到会走
+Entity.setRemoved(DISCARDED) —— 那里面有 if (shouldDestroy()) stopRiding()，
+即【先把她从载具上摘下来】；而后面的 ClientboundAddEntityPacket 是裸生成包，
+没有载具字段，她以"没骑任何东西"的状态重建。乘客名单本该由【载具那一侧】的
+ServerEntity 在名单变化时广播，可服务端眼里名单从没变过，那一包永远不发第二次 ——
+脱钩是永久的。
+症状：女仆坐在坐垫/椅子上不播放下坐动画（TLM 的 "chair" 动画触发条件就是
+isPassenger()），位置也错位（不再套用载具的乘客挂点；且服务端对乘客只发转向、
+不发坐标，她会永久卡在生成包给的坐标上）。
+修法：照抄原版 ServerEntity.sendPairingData 的结尾，补发自己载的乘客包
+与【自己所乘载具】的乘客包。
+
+同时给 SableGate 的反射降级加了日志（原来静默降级，无法区分「反射没拿到」
+和「判定没命中」——实测日志里 28.9M 格的 Sable 踢仍然触发了重建，
+说明 2.1.2 的 skipSubLevels 门并没有生效）。
+
+2.1.4：客户端探针补上 ClientboundSetPassengersPacket（乘客包）。
+TLM 的「坐在坐垫/椅子上」动画（AnimationRegister 里的 "chair"）触发条件就是
+isPassenger()，而载具关系只有这一条包能建立 —— 偏偏它是唯一没被记录的。
+现记录：包里的载具/乘客 id、客户端认不认得它们（原版认不得时整包丢掉）、
+以及女仆在客户端此刻的 isPassenger()。
+
+2.1.5：新增重建冷却（配置 rebuildCooldownTicks，默认 40 tick = 2 秒）。
+判定一旦连续成立就会【每 tick 重建一次】—— 最典型的是 Sable 的坐标系错配
+（它把 entity.position 临时换成 plot 坐标，本模组读的却是世界坐标，两者相减
+恒为几千万格），于是每 tick 一次 removePairing+addPairing、还各排一套延迟补包；
+promaid 又在做同样的「删+生成+数据+装备」，两边叠加更浪费。
+冷却只挡重复动作、不挡第一次：跳过时把标记原样还回去，该修的那次一定还会修，
+只是挪到冷却结束。副产品是重建风暴的频率从每 tick 一次降到每冷却时长一次。
+跳过时刻意不 cancel sendChanges —— cancel 会吞掉本 tick 的旋转包与脏数据同步，
+只有在确实要重建时用重建换掉它们才划算。
+
+2.1.5 还修了一个客户端崩溃：LevelRendererMixin 原来用 SableCompat.isLoaded() 当守卫，
+但 SableCompat 自己就 import 了 Sable 类型（还有一个以 SubLevel 为参数类型的方法），
+方法签名在【类校验】时就要解析 —— 没装 Sable 的客户端一走到那里就 NoClassDefFoundError，
+它的 isLoaded() 根本来不及执行。改为用 SableGate.modPresent() 当门（那个类不含任何
+Sable 类型）。同时删掉死代码 clearStaleTracking / isLoaded。
+只在客户端 + 打开 diagnose 时才会走到，所以此前没被发现。
+
+另外记一条给用户的警告：不要用数据包把 touhou_little_maid:maid 加进
+sable:retain_in_sub_level。那样会把女仆的服务端坐标变成 plot 坐标（几千万格），
+而主人/她的家/其他实体都在世界坐标 —— 任何拿她跟世界算距离或包围盒的模组都会炸
+（实测：MaidUseHandCrank 的外接矩形宽 2048 万格、逐区块同步读盘，服务器单 tick 卡死 40 秒；
+promaid 的 trySameDimPull 反复把她传送出结构）。而且它并不解决"结构移动她留在原地"——
+那个的真正原因是客户端实体被反复重建，本模组的 skipSubLevels 就够了。
 """
 
 [[dependencies.maidsync]]

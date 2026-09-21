@@ -1,11 +1,9 @@
 package com.maidsync.compat;
 
 import dev.ryanhcode.sable.Sable;
-import dev.ryanhcode.sable.mixinterface.entity.entity_sublevel_collision.EntityMovementExtension;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.fml.ModList;
 
 /**
  * Sable 兼容层 —— 修「女仆被远距离传送后看不见」的真正原因。
@@ -27,21 +25,19 @@ import net.neoforged.fml.ModList;
  * <p>所以：远距离传送后把这个陈旧追踪清掉即可。清掉是安全的 —— 她真的在飞船上时，
  * 传送本身就已经让她离开了那艘船。
  *
- * <p>本类引用了 Sable 的类型，只能在确认 Sable 已加载之后再触碰
- * （见 {@link #isLoaded()}）。Sable 不在时 JVM 不会加载本类。
+ * <h2>⚠️ 本类只能在确认 Sable 已加载之后再触碰，门用 {@link SableGate#modPresent()}</h2>
+ * 本类直接 import 了 Sable 类型，而且有一个以 {@code SubLevel} 为参数类型的方法
+ * （{@code describe(SubLevel)}）—— <b>方法签名的类型在类校验时就要解析</b>。
+ * 也就是说"加载 SableCompat 这个类"本身就是致命的：没装 Sable 时一加载就
+ * {@code NoClassDefFoundError}，<b>它自己的任何 isLoaded() 都来不及执行</b>。
+ *
+ * <p>所以守卫必须是 {@link SableGate#modPresent()} —— 那个类一个 Sable 类型都不出现。
+ * 门后的 {@code describeTracking} 只在 Sable 真在时才被解析
+ * （JVM 的符号引用是首次执行该指令时才解析）。
  */
 public final class SableCompat {
-    private static Boolean loaded;
 
     private SableCompat() {
-    }
-
-    /** 不触碰任何 Sable 类型，所以即使 Sable 不在也能安全调用。 */
-    public static boolean isLoaded() {
-        if (loaded == null) {
-            loaded = ModList.get().isLoaded("sable");
-        }
-        return loaded;
     }
 
     /**
@@ -74,18 +70,4 @@ public final class SableCompat {
                 + "@" + String.format("%.1f/%.1f/%.1f", origin.x, origin.y, origin.z);
     }
 
-    /** @return 是否真的清掉了东西（用来决定要不要打日志）。 */
-    public static boolean clearStaleTracking(Entity entity) {
-        if (!(entity instanceof EntityMovementExtension extension)) {
-            return false;
-        }
-        boolean hadSomething = extension.sable$getTrackingSubLevel() != null
-                || extension.sable$getLastTrackingSubLevelID() != null;
-        if (!hadSomething) {
-            return false;
-        }
-        extension.sable$setTrackingSubLevel(null);
-        extension.sable$setLastTrackingSubLevelID(null);
-        return true;
-    }
 }

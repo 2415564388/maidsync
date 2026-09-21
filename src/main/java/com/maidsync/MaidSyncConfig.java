@@ -36,6 +36,8 @@ public final class MaidSyncConfig {
         private final ModConfigSpec.BooleanValue debugLog;
         private final ModConfigSpec.BooleanValue diagnose;
         private final ModConfigSpec.IntValue deferredRebuildDelayTicks;
+        private final ModConfigSpec.BooleanValue skipSubLevels;
+        private final ModConfigSpec.IntValue rebuildCooldownTicks;
 
         private Values(ModConfigSpec.Builder b) {
             b.comment("MaidSync —— 女仆远距离传送后客户端不可见的修复").push("maidsync");
@@ -81,6 +83,43 @@ public final class MaidSyncConfig {
                             "太短会被传送后紧随的同步冲掉；太长则玩家要多等一会儿才看得见她。")
                     .defineInRange("deferredRebuildDelayTicks", 20, 1, 200);
 
+            skipSubLevels = b.comment(
+                            "跳过 Sable 物理子关卡上的实体（默认开）。",
+                            "",
+                            "为什么需要：Sable 的 shouldKick 是「实体类型不在 sable:retain_in_sub_level 标签里」，",
+                            "而 touhou_little_maid:maid 不在那个标签里。于是女仆站在子关卡上时，Sable 会在",
+                            "每 tick 的碰撞解算（SubLevelEntityCollision.collide）里把她从 plot 坐标系【踢】",
+                            "回世界坐标系 —— 那是一次 Entity.moveTo(Vec3)，位移是两套坐标系的间距（几百到上千格），",
+                            "正好落在本模组的传送嗅探点上。不拦的后果：每 tick 判定为「远距离传送」，每 tick",
+                            "删一次客户端实体再生成 —— 表现为女仆持续抖动抽搐。",
+                            "",
+                            "开启后：实体在子关卡里、或正追踪着子关卡时，不参与本模组的标记与重建。",
+                            "被跳过的标记会留着，等她真正离开子关卡后再补一次重建（那时确实是一次真传送）。",
+                            "",
+                            "【更彻底的做法】用数据包把 touhou_little_maid:maid 加进",
+                            "sable:retain_in_sub_level 标签 —— Sable 就不踢她了，女仆会跟着飞船走，",
+                            "本开关也就永远不会触发。那条路改的是 Sable 的行为，比这里绕开更根本。")
+                    .define("skipSubLevels", true);
+
+            rebuildCooldownTicks = b.comment(
+                            "同一只女仆两次重建之间的最小间隔（tick，默认 40 = 2 秒，0 = 关闭冷却）。",
+                            "",
+                            "为什么需要：判定一旦连续成立，就会【每 tick 重建一次】。最典型的是",
+                            "Sable 的坐标系错配（它把 entity.position 临时换成 plot 坐标，而本模组",
+                            "读的是世界坐标，两者相减恒为几千万格）—— 于是每 tick 一次 removePairing",
+                            "+ addPairing，每次还排一套延迟补包。别的模组（promaid）也在做同样的",
+                            "「删+生成+数据+装备」，两边叠加就更浪费。",
+                            "",
+                            "冷却只挡重复动作、不挡第一次：跳过时会把标记原样还回去，",
+                            "所以该修的那次一定还会修，只是挪到冷却结束。",
+                            "副作用：真被冻住的女仆从「约 1 秒自愈」变成「最坏 1 秒 + 冷却时长」。",
+                            "",
+                            "跳过时【刻意不 cancel】sendChanges —— cancel 会吞掉本 tick 的旋转包与",
+                            "脏数据同步，只有在确实要重建时用重建换掉它们才划算。",
+                            "",
+                            "调大 → 更省、但冻住时恢复更慢；调到 0 → 回到旧行为。")
+                    .defineInRange("rebuildCooldownTicks", 40, 0, 600);
+
             b.pop();
         }
     }
@@ -120,5 +159,13 @@ public final class MaidSyncConfig {
 
     public static int deferredRebuildDelayTicks() {
         return read(VALUES.deferredRebuildDelayTicks, Integer.valueOf(20));
+    }
+
+    public static boolean skipSubLevels() {
+        return read(VALUES.skipSubLevels, Boolean.TRUE);
+    }
+
+    public static int rebuildCooldownTicks() {
+        return read(VALUES.rebuildCooldownTicks, Integer.valueOf(40));
     }
 }
